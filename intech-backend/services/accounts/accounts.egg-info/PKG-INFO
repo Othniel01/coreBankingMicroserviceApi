@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: accounts
+Version: 0.1.0
+Summary: Accounts microservice
+Author: Othniel
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: sqlalchemy
+Requires-Dist: alembic
+Requires-Dist: httpx
+Requires-Dist: pytest
+Requires-Dist: pytest-asyncio
+Requires-Dist: aiosqlite
