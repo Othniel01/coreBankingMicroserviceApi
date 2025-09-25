@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.venv
+*.sqlite3
+
+# Logs
+*.log
+logs/
+*/logs/
+
+# Docker
+docker-compose.override.yml
+**/Dockerfile
+**/docker-compose.yml
+**/docker-compose.override.yml
+
+# Alembic
+**/alembic/
+**/migrations/
+
+# VS Code / IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
