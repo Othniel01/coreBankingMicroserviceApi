@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.env
-*.venv
+.venv/
 *.sqlite3
 
 # Logs
@@ -13,21 +13,20 @@ logs/
 */logs/
 
 # Docker
+# Keep Dockerfiles and main docker-compose.yml, ignore overrides and temp files
 docker-compose.override.yml
-**/Dockerfile
-**/docker-compose.yml
 **/docker-compose.override.yml
 
-# Alembic
-**/alembic/
+# Alembic / migrations
+**/alembic/versions/
 **/migrations/
 
-# VS Code / IDEs
+# IDEs / editors
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db

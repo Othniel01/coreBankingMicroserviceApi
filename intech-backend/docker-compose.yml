@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  auth:
+    build:
+      context: ./services/auth
+    container_name: auth_service
+    env_file: ./services/auth/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db_auth
+      - redis_auth
+    volumes:
+      - ./services/auth:/app
+      - ./services/auth/keys:/app/keys
+      - ./services/auth/logs:/app/logs
+
+  db_auth:
+    image: postgres:15
+    container_name: db_auth
+    environment:
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+      POSTGRES_DB: auth_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_auth_data:/var/lib/postgresql/data
+
+  redis_auth:
+    image: redis:7
+    container_name: redis_auth
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_auth_data:/data
+
+  accounts:
+    build:
+      context: ./services/accounts
+    container_name: accounts_service
+    env_file: ./services/accounts/.env
+    ports:
+      - "8001:8001" # Accounts service exposed on 8001
+    depends_on:
+      - db_accounts
+    volumes:
+      - ./services/accounts:/app
+      - ./services/accounts/logs:/app/logs
+
+  db_accounts:
+    image: postgres:15
+    container_name: db_accounts
+    environment:
+      POSTGRES_USER: accounts_user
+      POSTGRES_PASSWORD: accounts_pass
+      POSTGRES_DB: accounts_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_accounts_data:/var/lib/postgresql/data
+
+volumes:
+  db_auth_data:
+  redis_auth_data:
+  db_accounts_data:
