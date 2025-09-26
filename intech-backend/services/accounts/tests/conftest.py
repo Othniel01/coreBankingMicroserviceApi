@@ -12,7 +12,7 @@ os.environ["DATABASE_URL_SYNC"] = "sqlite:///:memory:"
 os.environ["AUTH_JWKS_URL"] = "http://testserver/.well-known/jwks.json"
 
 from app.main import app
-from app.core.db import Base, get_db
+from app.db.db import Base, get_db
 from app.core import auth
 
 

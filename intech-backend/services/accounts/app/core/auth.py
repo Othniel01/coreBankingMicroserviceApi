@@ -11,10 +11,15 @@ async def get_current_user(
 ):
     if not creds:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
     token = creds.credentials
     try:
         payload = verify_jwt(token)
-    except JWTError as e:
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-    # payload contains 'sub' or other claims
-    return payload
+
+    return {
+        "sub": payload.get("sub"),
+        "email": payload.get("email"),
+        "is_superuser": payload.get("is_superuser", False),
+    }

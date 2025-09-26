@@ -41,14 +41,27 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User | No
 
 async def create_tokens_and_store(db: AsyncSession, user) -> dict:
     access = create_access_token(
-        str(user.id), extra_claims={"email": user.email, "role": "user"}
+        str(user.id),
+        extra_claims={
+            "email": user.email,
+            "role": "user",
+            "is_superuser": user.is_superuser,
+        },
     )
+
     refresh = create_refresh_token(str(user.id))
     hashed = hash_refresh_token(refresh)
+
     expires_at = datetime.now(timezone.utc) + timedelta(days=14)
-    rt = RefreshToken(user_id=user.id, token_hash=hashed, expires_at=expires_at)
+    rt = RefreshToken(
+        user_id=user.id,
+        token_hash=hashed,
+        expires_at=expires_at,
+    )
+
     db.add(rt)
     await db.commit()
+
     return {"access_token": access, "refresh_token": refresh}
 
 

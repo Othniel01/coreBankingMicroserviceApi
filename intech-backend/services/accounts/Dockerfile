@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps for postgres/cryptography
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev gcc libffi-dev libssl-dev \
   && rm -rf /var/lib/apt/lists/*

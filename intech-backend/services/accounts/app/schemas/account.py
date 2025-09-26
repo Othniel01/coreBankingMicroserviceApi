@@ -21,6 +21,7 @@ class AccountOut(BaseModel):
     id: int
     external_id: Optional[str] = None
     owner_user_id: str
+    account_number: str
     currency: str
     balance: Decimal
     is_frozen: bool
@@ -35,5 +36,15 @@ class AccountOut(BaseModel):
 
 class BalanceOut(BaseModel):
     external_id: str
+    account_number: str
     balance: Decimal
     currency: str
+
+
+class PinPayload(BaseModel):
+    old_pin: Optional[str] = None
+    new_pin: str = Field(..., min_length=4, max_length=4, pattern=r"^\d{4}$")
+
+
+class PinPayloadCreate(BaseModel):
+    new_pin: str = Field(..., min_length=4, max_length=4, pattern=r"^\d{4}$")

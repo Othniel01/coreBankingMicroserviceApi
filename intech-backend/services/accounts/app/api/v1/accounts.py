@@ -1,17 +1,32 @@
 # app/api/v1/accounts.py
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
 import uuid
 
-from app.schemas.account import AccountCreate, AccountOut, AccountUpdate, BalanceOut
+from app.schemas.account import (
+    AccountCreate,
+    AccountOut,
+    AccountUpdate,
+    BalanceOut,
+    PinPayloadCreate,
+)
 from app.models.accounts import Account
-from app.core.db import get_db
+from app.schemas.account import (
+    AccountCreate,
+    AccountOut,
+    AccountUpdate,
+    BalanceOut,
+    PinPayload,
+)
+from app.db.db import get_db
 from app.core.auth import get_current_user
 from app.core.rate_limiter import rate_limit_dependency
 from app.core.events import publish_event
+from app.core.deps import require_superuser
+from app.core.security import generate_account_number, hash_pin, verify_pin
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -27,11 +42,15 @@ async def create_account(
     user=Depends(get_current_user),
 ):
     external_id = payload.external_id or str(uuid.uuid4())
+    account_number = generate_account_number()
+
     account = Account(
         external_id=external_id,
         owner_user_id=payload.owner_user_id,
         currency=payload.currency,
         balance=Decimal(0),
+        account_number=account_number,
+        hashed_pin="",  # empty by default
     )
     db.add(account)
     await db.commit()
@@ -43,6 +62,7 @@ async def create_account(
             "external_id": account.external_id,
             "owner_user_id": account.owner_user_id,
             "currency": account.currency,
+            "account_number": account.account_number,
         },
     )
 
@@ -60,8 +80,7 @@ async def list_accounts(
 ):
     query = select(Account)
 
-    # Non-admin can only list their own accounts
-    if user.get("role") != "admin":
+    if not user.get("is_superuser"):
         query = query.where(Account.owner_user_id == user.get("sub"))
     elif owner_user_id:
         query = query.where(Account.owner_user_id == owner_user_id)
@@ -87,7 +106,7 @@ async def get_account(
     if not account:
         raise HTTPException(404, "Account not found")
 
-    if user.get("sub") != account.owner_user_id and user.get("role") != "admin":
+    if user.get("sub") != account.owner_user_id and not user.get("is_superuser"):
         raise HTTPException(403, "Forbidden")
     return account
 
@@ -103,7 +122,7 @@ async def get_balance(
     account = q.scalars().first()
     if not account:
         raise HTTPException(404, "Account not found")
-    if user.get("sub") != account.owner_user_id and user.get("role") != "admin":
+    if user.get("sub") != account.owner_user_id and not user.get("is_superuser"):
         raise HTTPException(403, "Forbidden")
     return BalanceOut(
         external_id=account.external_id,
@@ -117,15 +136,13 @@ async def patch_status(
     external_id: str,
     is_frozen: bool,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_superuser),
 ):
     q = await db.execute(select(Account).where(Account.external_id == external_id))
     account = q.scalars().first()
     if not account:
         raise HTTPException(404, "Account not found")
 
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Forbidden")
     account.is_frozen = is_frozen
     await db.commit()
     await db.refresh(account)
@@ -149,7 +166,7 @@ async def update_account(
     if not account:
         raise HTTPException(404, "Account not found")
 
-    if user.get("role") != "admin" and user.get("sub") != account.owner_user_id:
+    if not user.get("is_superuser") and user.get("sub") != account.owner_user_id:
         raise HTTPException(403, "Forbidden")
 
     for field, value in payload.dict(exclude_unset=True).items():
@@ -170,11 +187,8 @@ async def set_account_active_status(
     external_id: str,
     is_active: bool,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_superuser),
 ):
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Forbidden")
-
     q = await db.execute(select(Account).where(Account.external_id == external_id))
     account = q.scalars().first()
     if not account:
@@ -188,4 +202,67 @@ async def set_account_active_status(
         "account.active_status_changed",
         {"external_id": account.external_id, "is_active": is_active},
     )
+    return account
+
+
+@router.post("/{external_id}/pin", response_model=AccountOut)
+async def create_account_pin(
+    external_id: str,
+    payload: PinPayloadCreate = Body(...),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    q = await db.execute(select(Account).where(Account.external_id == external_id))
+    account = q.scalars().first()
+    if not account:
+        raise HTTPException(404, "Account not found")
+
+    if user.get("sub") != account.owner_user_id and not user.get("is_superuser"):
+        raise HTTPException(403, "Forbidden")
+
+    if account.hashed_pin:
+        raise HTTPException(400, "PIN already set. Use update endpoint to change PIN.")
+
+    account.hashed_pin = hash_pin(payload.new_pin)
+    await db.commit()
+    await db.refresh(account)
+
+    await publish_event(
+        "account.pin_created",
+        {"external_id": account.external_id, "owner_user_id": account.owner_user_id},
+    )
+
+    return account
+
+
+@router.patch("/{external_id}/pin", response_model=AccountOut)
+async def set_account_pin(
+    external_id: str,
+    payload: PinPayload = Body(...),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    q = await db.execute(select(Account).where(Account.external_id == external_id))
+    account = q.scalars().first()
+    if not account:
+        raise HTTPException(404, "Account not found")
+
+    if user.get("sub") != account.owner_user_id and not user.get("is_superuser"):
+        raise HTTPException(403, "Forbidden")
+
+    if account.hashed_pin:
+        if not payload.old_pin:
+            raise HTTPException(400, "Old PIN required to change PIN")
+        if not verify_pin(payload.old_pin, account.hashed_pin):
+            raise HTTPException(400, "Old PIN is incorrect")
+
+    account.hashed_pin = hash_pin(payload.new_pin)
+    await db.commit()
+    await db.refresh(account)
+
+    await publish_event(
+        "account.pin_set",
+        {"external_id": account.external_id, "owner_user_id": account.owner_user_id},
+    )
+
     return account

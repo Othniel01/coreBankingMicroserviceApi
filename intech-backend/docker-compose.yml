@@ -42,7 +42,7 @@ services:
     container_name: accounts_service
     env_file: ./services/accounts/.env
     ports:
-      - "8001:8001" # Accounts service exposed on 8001
+      - "8001:8001"
     depends_on:
       - db_accounts
     volumes:
@@ -61,7 +61,116 @@ services:
     volumes:
       - db_accounts_data:/var/lib/postgresql/data
 
+  transactions:
+    build:
+      context: ./services/transactions
+    container_name: transactions_service
+    env_file: ./services/transactions/.env
+    ports:
+      - "8002:8002"
+    depends_on:
+      - db_transactions
+      - rabbitmq
+      - accounts
+    volumes:
+      - ./services/transactions:/app
+      - ./services/transactions/logs:/app/logs
+
+  db_transactions:
+    image: postgres:15
+    container_name: db_transactions
+    environment:
+      POSTGRES_USER: transactions_user
+      POSTGRES_PASSWORD: transactions_pass
+      POSTGRES_DB: transactions_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - db_transactions_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  fraud_consumer:
+    build:
+      context: ./services/transactions
+    container_name: fraud_consumer
+    env_file: ./services/transactions/.env
+    command: python -m app.consumers.fraud_consumer
+    depends_on:
+      - rabbitmq
+      - db_transactions
+    volumes:
+      - ./services/transactions:/app
+
+  settlement_consumer:
+    build:
+      context: ./services/transactions
+    container_name: settlement_consumer
+    env_file: ./services/transactions/.env
+    command: python -m app.consumers.settlement_consumer
+    depends_on:
+      - rabbitmq
+      - db_transactions
+    volumes:
+      - ./services/transactions:/app
+
+  kong_postgres:
+    image: postgres:15
+    container_name: kong_postgres
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+      POSTGRES_DB: kong
+    ports:
+      - "5436:5432"
+    volumes:
+      - kong_db_data:/var/lib/postgresql/data
+
+  kong:
+    image: kong:3.4.0
+    container_name: kong
+    depends_on:
+      - kong_postgres
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong_postgres
+      KONG_PG_PASSWORD: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "8003:8000"
+      - "8443:8443"
+      - "8004:8001"
+      - "8444:8444"
+
+  kong_bootstrap:
+    build:
+      context: ./gateway
+    container_name: kong_bootstrap
+    depends_on:
+      - kong
+    volumes:
+      - ./gateway:/app
+    command: ["python", "kong_bootstrap.py"]
+
 volumes:
   db_auth_data:
   redis_auth_data:
   db_accounts_data:
+  db_transactions_data:
+  rabbitmq_data:
+  kong_db_data:
+  kong_logs:
